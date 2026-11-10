@@ -8,19 +8,27 @@ import nflreadpy as nfl       # the nflverse Python client
 PROJECT_ROOT = Path(__file__).resolve().parent.parent   # extract/load_pbp.py -> extract/ -> project root
 DB_PATH = PROJECT_ROOT / "data" / "nfl.duckdb"          # the / operator joins path pieces together
 
+SEASONS = list(range(2018, 2027))     # every season to load; range's end number is EXCLUDED
+
+def load_season(con, season):
+    """Download one season and append it to raw.pbp."""
+    pbp = nfl.load_pbp([season])                         # pull one season as a Polars DataFrame
+    con.execute("CREATE TABLE IF NOT EXISTS raw.pbp AS SELECT * FROM pbp LIMIT 0")  # first time only: copy the columns, zero rows
+    con.execute("INSERT INTO raw.pbp BY NAME SELECT * FROM pbp")                    # append this season's rows, matching columns by name
+    print(f"{season}: loaded {pbp.height:,} rows")       # progress message per season
+
 def main():
-    con = duckdb.connect(str(DB_PATH))                   # open (or create) the database file
-    con.execute("CREATE SCHEMA IF NOT EXISTS raw")       # make sure the raw schema exists
+    con = duckdb.connect(str(DB_PATH))                   # open the database
+    con.execute("CREATE SCHEMA IF NOT EXISTS raw")       # make sure raw exists
+    con.execute("DROP TABLE IF EXISTS raw.pbp")          # full refresh: start from an empty slate each run
 
-    pbp = nfl.load_pbp([2025])                                   # pull ONE season of play-by-play as a Polars DataFrame
-    print(f"Pulled {pbp.height:,} rows x {pbp.width} columns")  # height = rows, width = columns; :, adds comma separators
+    for season in SEASONS:                                                         # loop: for each season in SEASONS...
+        load_season(con, season)                                                  # ...call load_season, passing it con and that season
 
-    con.execute("CREATE OR REPLACE TABLE raw.pbp AS SELECT * FROM pbp")  # copy the DataFrame into a DuckDB table
+    counts = con.execute("SELECT season, COUNT(*) FROM raw.pbp GROUP BY season ORDER BY season").fetchall()               # rows per season, in season order
+    for season, n in counts:                             # each row is a (season, count) tuple, so unpack both
+        print(f"  {season}: {n:,}")                      # print each season's count
 
-    row_count = con.execute("SELECT count(*) FROM raw.pbp").fetchone()[0]     # count rows that landed in the table
-    print(f"raw.pbp now has {row_count:,} rows")         # should match the pulled row count
-
-    con.close()                                                                          # release the file lock when done
-
+    con.close()                                          # release the file lock                                                                    
 if __name__ == "__main__":        # only run main() when the file is run directly, not when it's imported
     main()
