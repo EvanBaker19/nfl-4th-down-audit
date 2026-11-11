@@ -18,13 +18,21 @@ def load_season(con, season):
     con.execute("DELETE FROM raw.pbp WHERE season = ?", [season])                                                # wipe this season's existing rows
     con.execute("INSERT INTO raw.pbp BY NAME SELECT *, current_timestamp AS _loaded_at FROM pbp")                # insert the fresh copy, stamped
     print(f"{season}: loaded {pbp.height:,} rows")                                                               # progress message
-    
+
+def load_schedules(con):
+    """Download schedules for every season and fully replace raw.schedules (small table, so full refresh is fine)."""
+    sched = nfl.load_schedules(SEASONS)                                                                 # pull ALL seasons' schedules as one Polars DataFrame
+    con.execute("CREATE OR REPLACE TABLE raw.schedules AS SELECT *, current_timestamp AS _loaded_at FROM sched")        # rebuild the table, stamped with load time
+    print(f"schedules: loaded {sched.height:,} games")                                   # progress message
+
+
 def main():
     con = duckdb.connect(str(DB_PATH))                   # open the database
     con.execute("CREATE SCHEMA IF NOT EXISTS raw")       # make sure raw exists
     seasons = [int(s) for s in sys.argv[1:]] or SEASONS   # seasons typed after the script name; if none, load all
     for season in seasons:                                 # loop over whichever seasons were chosen
-        load_season(con, season)                           # delete + reload that one season
+        load_season(con, season)
+    load_schedules(con)                                  # schedules always reload in full (tiny table)                           # delete + reload that one season
 
     counts = con.execute("SELECT season, COUNT(*) FROM raw.pbp GROUP BY season ORDER BY season").fetchall()               # rows per season, in season order
     for season, n in counts:                             # each row is a (season, count) tuple, so unpack both
