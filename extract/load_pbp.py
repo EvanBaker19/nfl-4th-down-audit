@@ -12,13 +12,13 @@ DB_PATH = PROJECT_ROOT / "data" / "nfl.duckdb"          # the / operator joins p
 SEASONS = list(range(2018, 2027))     # every season to load; range's end number is EXCLUDED
 
 def load_season(con, season):
-    """Download one season and replace that seasons rows it to raw.pbp."""
-    pbp = nfl.load_pbp([season])                         # pull one season as a Polars DataFrame
-    con.execute("CREATE TABLE IF NOT EXISTS raw.pbp AS SELECT * FROM pbp LIMIT 0")  # first time only: copy the columns, zero rows
-    con.execute("DELETE FROM raw.pbp WHERE season = ?", [season])                #wipes 2026 data for the refresh, since the data is updated throughout the season
-    con.execute("INSERT INTO raw.pbp BY NAME SELECT * FROM pbp")                    # append this season's rows, matching columns by name
-    print(f"{season}: loaded {pbp.height:,} rows")       # progress message per season
-
+    """Download one season and replace that season's rows in raw.pbp."""
+    pbp = nfl.load_pbp([season])                                                                                 # pull one season as a Polars DataFrame
+    con.execute("CREATE TABLE IF NOT EXISTS raw.pbp AS SELECT *, current_timestamp AS _loaded_at FROM pbp LIMIT 0")  # first run only: create the table
+    con.execute("DELETE FROM raw.pbp WHERE season = ?", [season])                                                # wipe this season's existing rows
+    con.execute("INSERT INTO raw.pbp BY NAME SELECT *, current_timestamp AS _loaded_at FROM pbp")                # insert the fresh copy, stamped
+    print(f"{season}: loaded {pbp.height:,} rows")                                                               # progress message
+    
 def main():
     con = duckdb.connect(str(DB_PATH))                   # open the database
     con.execute("CREATE SCHEMA IF NOT EXISTS raw")       # make sure raw exists
